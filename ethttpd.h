@@ -21,17 +21,21 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <time.h>
 #include <limits.h>
+#ifdef MULTITHREADED
 #include <pthread.h>
-#include <netinet/ip.h>
+#endif
+#include <netinet/in.h>
 #include <arpa/inet.h>
 
 
@@ -58,7 +62,11 @@
 //! data structure handled over to threads
 typedef struct HttpThread
 {
+#ifdef MULTITHREADED
    pthread_t th;
+#else
+   pid_t pid;
+#endif
    int n;
    int sfd;
 } HttpThread_t;

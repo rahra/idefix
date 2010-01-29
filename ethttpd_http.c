@@ -32,7 +32,7 @@ void log_access(const struct sockaddr_in *saddr, const char *req, int stat, int 
    struct tm tm;
 
    if (inet_ntop(AF_INET, &saddr->sin_addr.s_addr, addr, 100) == NULL)
-      perror("inet_ntop"), exit(1);
+      perror("inet_ntop"), exit(EXIT_FAILURE);
    t = time(NULL);
    (void) localtime_r(&t, &tm);
    (void) strftime(tms, 100, "%d/%b/%Y:%H:%M:%S %z", &tm);
@@ -134,7 +134,7 @@ void *handle_http(void *p)
       // accept connections on server socket
       addrlen = sizeof(saddr);
       if ((fd = accept(((HttpThread_t*)p)->sfd, (struct sockaddr*) &saddr, &addrlen)) == -1)
-         perror("accept"), exit(1);
+         perror("accept"), exit(EXIT_FAILURE);
 
       // read a line from socket
       if (read_line(fd, buf, sizeof(buf)) == -1)
@@ -201,7 +201,7 @@ void *handle_http(void *p)
 
          // stat file
          if (fstat(lfd, &st) == -1)
-            perror("fstat"), exit(1);
+            perror("fstat"), exit(EXIT_FAILURE);
 
          // check if file is regular file
          if (!S_ISREG(st.st_mode))
