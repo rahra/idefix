@@ -1,19 +1,19 @@
 CC	= gcc
 CFLAGS = -Wall -g -DMULTITHREADED
 LDFLAGS = -lpthread
-TARGET = ethttpd
+TARGET = idefix
 
 
 all: $(TARGET)
 
 
-$(TARGET): ethttpd_http.o ethttpd.o
+$(TARGET): idefix_http.o idefix.o
 
 
-ethttpd_http.o: ethttpd.h
+idefix_http.o: idefix.h
 
 
-ethttpd.o: ethttpd.h
+idefix.o: idefix.h
 
 
 clean:
