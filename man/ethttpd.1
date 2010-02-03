@@ -1,39 +1,40 @@
 .\" Copyright 2010 Bernhard R. Fischer.
 .\"
-.\" This file is part of ethttpd.
+.\" This file is part of idefix.
 .\"
-.\" Ethttpd is free software: you can redistribute it and/or modify
+.\" Idefix is free software: you can redistribute it and/or modify
 .\" it under the terms of the GNU General Public License as published by
 .\" the Free Software Foundation, version 3 of the License.
 .\"
-.\" Ethttpd is distributed in the hope that it will be useful,
+.\" Idefix is distributed in the hope that it will be useful,
 .\" but WITHOUT ANY WARRANTY; without even the implied warranty of
 .\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 .\" GNU General Public License for more details.
 .\"
 .\" You should have received a copy of the GNU General Public License
-.\" along with ethttpd. If not, see <http://www.gnu.org/licenses/>.
+.\" along with idefix. If not, see <http://www.gnu.org/licenses/>.
 .\"
-.TH ETHTTPD 1 2010-01-29 "ethttpd" "Ethttpd User's Manual"
+.TH IDEFIX 1 2010-01-29 "idefix" "Idefix User's Manual"
 .SH NAME
-ethttpd \- Ethttpd is a super simple and tiny multi-threaded HTTP server.
+idefix \- Idefix is a super simple and tiny multi-threaded HTTP server.
 .SH SYNOPSIS
-.B ethttpd
+.B idefix
+[\fIport\fP]
 .br
 .SH DESCRIPTION
-Ethttpd is a super simple and tiny multi-threaded HTTP server. It opens a
-listening TCP port at 8080 and waits for incoming connections there. To change
-to default port number you have to modify the header file and recompile it. For
-simplicity of the program there are no options.
+Idefix is a super simple and tiny multi-threaded HTTP server. It opens a
+listening TCP port at 8080 and waits for incoming connections there.  You may
+specify a different \fIport\fP number as command line argument.
 
 Currently it supports only the method GET and protocol version HTTP/0.9,
 HTTP/1.0, and HTTP/1.1. The latter is not fully implemented, hence, it cannot
 be considered as being HTTP/1.1 compliant. It does not support name-based
 virtual hosts.
 
-.\" .SS OPTIONS
-.\" .TP
-.\" \fBnone\fP
+.SS OPTIONS
+.TP
+\fBport\fP
+A port number may optionally be specified on the command line.
 
 .SH NOTES
 This man page is still not finished...
@@ -48,16 +49,16 @@ Concepts, software, and man page written by Bernhard R. Fischer.
 .SH COPYRIGHT
 Copyright 2010 Bernhard R. Fischer.
 
-This file is part of ethttpd.
+This file is part of idefix.
 
-Ethttpd is free software: you can redistribute it and/or modify
+Idefix is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, version 3 of the License.
 
-Ethttpd is distributed in the hope that it will be useful,
+Idefix is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with ethttpd. If not, see <http://www.gnu.org/licenses/>.
+along with idefix. If not, see <http://www.gnu.org/licenses/>.
