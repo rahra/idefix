@@ -46,7 +46,9 @@
 //! buffer length of lines being received
 #define HTTP_LINE_LENGTH 1024
 //! root path of contents (must be full path)
-#define DOC_ROOT "/home/eagle"
+#define DOC_ROOT "/var/www"
+//! input buffer size
+#define RBUFLEN 4096
 
 // HTTP status message strings
 #define STATUS_500 "HTTP/1.0 500 Internal Server Error\r\n\r\n<html><body>500 -- INTERNAL SERVER ERROR</h1></body></html>\r\n"
@@ -70,6 +72,16 @@ typedef struct HttpThread
    int n;
    int sfd;
 } HttpThread_t;
+
+
+//! data structure to handle input data
+typedef struct bufio
+{
+   int rfd;          //!< input file descriptor
+   size_t rbuflen;   //!< total length of input buffer
+   char *rbuf;       //!< pointer to input buffer
+   size_t rpos;      //!< number of bytes filled in input buffer
+} bufio_t;
 
 
 // prototypes
