@@ -32,7 +32,10 @@ void log_access(const struct sockaddr_in *saddr, const char *req, int stat, int 
    struct tm tm;
 
    if (inet_ntop(AF_INET, &saddr->sin_addr.s_addr, addr, 100) == NULL)
-      perror("inet_ntop"), exit(EXIT_FAILURE);
+   {
+      perror("inet_ntop");
+      addr[0] = '\0';
+   }
    t = time(NULL);
    (void) localtime_r(&t, &tm);
    (void) strftime(tms, 100, "%d/%b/%Y:%H:%M:%S %z", &tm);
@@ -99,13 +102,13 @@ void remove_nl(char *buf)
 }
 
 
-/*! Close file descriptor and exit on error.
+/*! Close file descriptor
  *  @param fd File descriptor to be closed.
  */
 void eclose(int fd)
 {
    if (close(fd) == -1)
-      perror("close"), exit(EXIT_FAILURE);
+      perror("close");
 }
 
 
@@ -117,12 +120,50 @@ void bio_close(bufio_t *bio)
 }
 
 
+/*! Return HTTP status message strings.
+ * @param status HTTP status code.
+ * @return constant message string.
+ */
+const char *status_message(int status)
+{
+   switch (status)
+   {
+      default:
+      case 500:
+         return
+            "HTTP/1.0 500 Internal Server Error\r\n\r\n"
+            "<html><body>500 -- INTERNAL SERVER ERROR</h1></body></html>\r\n";
+      case 501:
+         return
+            "HTTP/1.0 501 Not Implemented\r\n\r\n"
+            "<html><body><h1>501 -- METHOD NOT IMPLEMENTED</h1></body></html>\r\n";
+      case 400:
+         return
+            "HTTP/1.0 400 Bad Request\r\n\r\n"
+            "<html><body><h1>400 -- BAD REQUEST</h1></body></html>\r\n";
+      case 200:
+         return
+            "HTTP/1.0 200 OK\r\n";
+      case 404:
+         return
+            "HTTP/1.0 404 Not Found\r\n\r\n"
+            "<html><body><h1>404 -- NOT FOUND</h1></body></html>\r\n";
+   }
+}
+
+
+void send_string(int fd, const char *s)
+{
+   write(fd, s, strlen(s));
+}
+
+
 /*! Handle incoming connection.
  *  @param p Pointer to HttpThread_t structure.
  */
 void *handle_http(void *p)
 {
-   bufio_t bio;
+   bufio_t bio;               //!< structure for input stream
    int lfd;                   //!< file descriptor of local (html) file
    char buf[HTTP_LINE_LENGTH + 1]; //!< input buffer
    char dbuf[HTTP_LINE_LENGTH + 1]; //!< copy of input buffer used for logging
@@ -136,19 +177,27 @@ void *handle_http(void *p)
    char path[strlen(DOC_ROOT) + HTTP_LINE_LENGTH + 2]; //!< buffer for requested path to file
    char rpath[PATH_MAX + 1];  //!< buffer for real path of file
    char *fbuf;                //!< pointer to data of file
+   int status;                //!< HTTP status code variable
 
+   // get some memory for input stream
    if ((bio.rbuf = malloc(RBUFLEN)) == NULL)
       return NULL;
    bio.rbuflen = RBUFLEN;
  
    for (;;)
    {
+      fbuf = NULL;
+      lfd = 0;
+      len = 0;
       bio.rpos = 0;
+
       // accept connections on server socket
       addrlen = sizeof(saddr);
       if ((bio.rfd = accept(((HttpThread_t*)p)->sfd, (struct sockaddr*) &saddr, &addrlen)) == -1)
-         perror("accept"), exit(EXIT_FAILURE);
-
+      {
+         log_access(&saddr, "***ACCEPT FAILED", 0, 0);
+         continue;
+      }
 
       // read a line from socket
       if (bio_read(&bio, buf, sizeof(buf)) == -1)
@@ -162,25 +211,21 @@ void *handle_http(void *p)
       // check if string is empty
       if (!strlen(buf))
       {
-         SEND_STATUS(bio.rfd, STATUS_400);
-         log_access(&saddr, dbuf, 400, 0);
-         bio_close(&bio);
-         continue;
+         status = 400;
+         goto status_msg;
       }
 
       // make a copy of request line and split into tokens
       strcpy(dbuf, buf);
       method = strtok_r(buf, " ", &sptr);
       uri = strtok_r(NULL, " ", &sptr);
-      if ((ver = strtok_r(NULL, " \r\n", &sptr)) != NULL)
+      if ((ver = strtok_r(NULL, " ", &sptr)) != NULL)
       {
          // check if protocol version is valid
          if ((strcmp(ver, "HTTP/1.0") != 0) && (strcmp(ver, "HTTP/1.1") != 0))
          {
-            SEND_STATUS(bio.rfd, STATUS_400);
-            log_access(&saddr, dbuf, 400, 0);
-            bio_close(&bio);
-            continue;
+            status = 400;
+            goto status_msg;
          }
       }
       // if no protocol version is sent assume version 0.9
@@ -190,85 +235,88 @@ void *handle_http(void *p)
       // check if request line contains URI and that it starts with '/'
       if ((uri == NULL) || (uri[0] != '/'))
       {
-         SEND_STATUS(bio.rfd, STATUS_400);
-         log_access(&saddr, dbuf, 400, 0);
-          bio_close(&bio);
-         continue;
+         status = 400;
+         goto status_msg;
       }
 
       // check if request method is "GET"
-      if (!strcmp(method, "GET"))
+      if (strcmp(method, "GET"))
       {
-         strcpy(path, DOC_ROOT);
-         strcat(path, uri);
-         // test if path is a real path and is within DOC_ROOT
-         // and file is openable
-         if ((realpath(path, rpath) == NULL) || 
-               strncmp(rpath, DOC_ROOT, strlen(DOC_ROOT)) ||
-               ((lfd = open(rpath, O_RDONLY)) == -1))
+         status = 501;
+         goto status_msg;
+      }
 
+      strcpy(path, DOC_ROOT);
+      strcat(path, uri);
+      // test if path is a real path and is within DOC_ROOT
+      // and file is openable
+      if ((realpath(path, rpath) == NULL) || 
+            strncmp(rpath, DOC_ROOT, strlen(DOC_ROOT)) ||
+            ((lfd = open(rpath, O_RDONLY)) == -1))
+
+      {
+         status = 404;
+         goto status_msg;
+      }
+
+      // stat file
+      if (fstat(lfd, &st) == -1)
+      {
+         status = 500;
+         goto status_msg;
+      }
+
+      // check if file is regular file
+      if (!S_ISREG(st.st_mode))
+      {
+         status = 404;
+         goto status_msg;
+      }
+
+      // get memory for file to send
+      if ((fbuf = malloc(st.st_size)) == NULL)
+      {
+         status = 500;
+         goto status_msg;
+      }
+
+      // read data of file
+      len = read(lfd, fbuf, st.st_size);
+
+      // check if read was successful
+      if (len == -1)
+      {
+         len = 0;
+         status = 500;
+         goto status_msg;
+      }
+
+      // everything fine
+      status = 200;
+
+status_msg:
+      // send status message only for version > 0.9
+      if (!v09)
+      {
+         send_string(bio.rfd, status_message(status));
+         if (status == 200)
          {
-            SEND_STATUS(bio.rfd, STATUS_404);
-            log_access(&saddr, dbuf, 404, 0);
-            bio_close(&bio);
-            continue;
-         }
-
-         // stat file
-         if (fstat(lfd, &st) == -1)
-            perror("fstat"), exit(EXIT_FAILURE);
-
-         // check if file is regular file
-         if (!S_ISREG(st.st_mode))
-         {
-            SEND_STATUS(bio.rfd, STATUS_404);
-            log_access(&saddr, dbuf, 404, 0);
-            bio_close(&bio);
-            eclose(lfd);
-            continue;
-         }
-
-         // get memory for file to send
-         if ((fbuf = malloc(st.st_size)) == NULL)
-         {
-            SEND_STATUS(bio.rfd, STATUS_500);
-            log_access(&saddr, dbuf, 500, 0);
-            bio_close(&bio);
-            eclose(lfd);
-            continue;
-         }
-
-         // read data of file
-         len = read(lfd, fbuf, st.st_size);
-         eclose(lfd);
-
-         // check if read was successful
-         if (len == -1)
-         {
-            SEND_STATUS(bio.rfd, STATUS_500);
-            log_access(&saddr, dbuf, 500, 0);
-            free(fbuf);
-            bio_close(&bio);
-            continue;
-         }
-
-         // create response dependent on protocol version
-         if (!v09)
-         {
-            SEND_STATUS(bio.rfd, STATUS_200);
             snprintf(buf, sizeof(buf), "Content-Length: %ld\r\n\r\n", len);
             write(bio.rfd, buf, strlen(buf));
          }
-         write(bio.rfd, fbuf, len);
-         free(fbuf);
-         log_access(&saddr, dbuf, 200, len);
-         bio_close(&bio);
-         continue;
       }
 
-      // all other methods are not implemented
-      SEND_STATUS(bio.rfd, STATUS_501);
-      log_access(&saddr, dbuf, 501, 0);
+      // send file if everything went ok
+      if (status == 200)
+         write(bio.rfd, fbuf, len);
+
+      // create log entry
+      log_access(&saddr, dbuf, status, len);
+
+      // free everything
+      if (lfd)
+         eclose(lfd);
+      free(fbuf);
       bio_close(&bio);
    }
 
