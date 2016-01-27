@@ -50,16 +50,6 @@
 //! input buffer size
 #define RBUFLEN 4096
 
-// HTTP status message strings
-#define STATUS_500 "HTTP/1.0 500 Internal Server Error\r\n\r\n<html><body>500 -- INTERNAL SERVER ERROR</h1></body></html>\r\n"
-#define STATUS_501 "HTTP/1.0 501 Not Implemented\r\n\r\n<html><body><h1>501 -- METHOD NOT IMPLEMENTED</h1></body></html>\r\n"
-#define STATUS_400 "HTTP/1.0 400 Bad Request\r\n\r\n<html><body><h1>400 -- BAD REQUEST</h1></body></html>\r\n"
-#define STATUS_200 "HTTP/1.0 200 OK\r\n"
-#define STATUS_404 "HTTP/1.0 404 Not Found\r\n\r\n<html><body><h1>404 -- NOT FOUND</h1></body></html>\r\n"
-
-//! macro for sending answers to browser
-#define SEND_STATUS(f, s) write(f, s, strlen(s))
-
 
 //! data structure handled over to threads
 typedef struct HttpThread
