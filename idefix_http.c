@@ -40,63 +40,63 @@ void log_access(const struct sockaddr_in *saddr, const char *req, int stat, int 
 }
 
 
-/** Read \r\n-terminated line from file descriptor.
-  * @param s File descriptor.                      
-  * @param buf Pointer to buffer.                  
-  * @param size Size of buffer.                    
-  * @return Number of characters read, -1 on error, errno is set.
-  */                                                             
-int read_line(int fd, char *buf, int size)                       
-{                                                                
-   int r = 0, s = size;                                          
+/*! Read \n-terminated line from file descriptor and \0-terminate the string.
+ * @param bio bufio_t structure containing buffer and file descriptor.
+ * @param buf Buffer which will receive the data.
+ * @param size Size of buffer.
+ * @return Returns the number of bytes copied into the buffer excluding the \0
+ * character. Thus, the function will return size - 1 at a maximum. The
+ * function will return 0 if called with size is 0.
+ */
+ssize_t bio_read(bufio_t *bio, char *buf, size_t size)
+{
+   size_t i, rlen, olen;
 
-   // buffer too small?
-   if (--size <= 0)    
-   {                   
-      errno = EMSGSIZE;
-      return(-1);      
-   }                   
+   // safety check
+   if (!size)
+      return 0;
 
-   while (1)
-   {        
-      // read a single character.
-      if (recv(fd, buf, 1, 0) <= 0)
-         return(-1);               
+   // space for terminating \0
+   size--;
+   for (olen = 0; size; size -= i)
+   {
+      // fill buffer if empty
+      if (!bio->rpos)
+      {
+         if ((rlen = read(bio->rfd, bio->rbuf + bio->rpos, bio->rbuflen - bio->rpos)) == -1)
+            return -1;
+         bio->rpos += rlen;
+      }
 
-      // decrease buffer size counter
-      size--;                        
+      for (i = 0; i < bio->rpos && i < size; i++, buf++)
+      {
+         *buf = bio->rbuf[i];
+         if (*buf == '\n')
+         {
+            bio->rpos -= i;
+            memmove(bio->rbuf, bio->rbuf + i, bio->rpos);
+            size = i + 1;
+         }
+      }
+      olen += i;
 
-      // Detect end-of-line characters (\r\n)
-      switch (*buf)                          
-      {                                      
-         case '\r' :                         
-            r = 1;                           
-            break;                           
+      if (i == size)
+         break;
+   }
+   *buf = '\0';
+   return olen;
+}
 
-         case '\n' :
-            // previous char '\r'?
-            if (r == 1)           
-            {                     
-               // end-of-line found, return.
-               *(buf - 1) = 0;              
-               return(s - size - 2);        
-            }                               
 
-         default :
-            r = 0;
-      }           
-
-      buf++;
-
-      // buffer full?
-      if (size == 0) 
-      {              
-         *buf = 0;   
-         errno = ENOBUFS;
-         return(-1);     
-      }                  
-   }                     
-}                        
+/*! Remove terminating \r\n characters from string.
+ * @param buf Pointer to string.
+ */
+void remove_nl(char *buf)
+{
+   int i;
+   for (i = strlen(buf) - 1; i >= 0 && (buf[i] == '\n' || buf[i] == '\r'); i--)
+      buf[i] = '\0';
+}
 
 
 /*! Close file descriptor and exit on error.
@@ -109,12 +109,20 @@ void eclose(int fd)
 }
 
 
+void bio_close(bufio_t *bio)
+{
+   // flush input data
+   while (recv(bio->rfd, bio->rbuf, bio->rbuflen, MSG_DONTWAIT) > 0);
+   eclose(bio->rfd);
+}
+
+
 /*! Handle incoming connection.
  *  @param p Pointer to HttpThread_t structure.
  */
 void *handle_http(void *p)
 {
-   int fd;                    //!< local file descriptor
+   bufio_t bio;
    int lfd;                   //!< file descriptor of local (html) file
    char buf[HTTP_LINE_LENGTH + 1]; //!< input buffer
    char dbuf[HTTP_LINE_LENGTH + 1]; //!< copy of input buffer used for logging
@@ -129,27 +137,34 @@ void *handle_http(void *p)
    char rpath[PATH_MAX + 1];  //!< buffer for real path of file
    char *fbuf;                //!< pointer to data of file
 
+   if ((bio.rbuf = malloc(RBUFLEN)) == NULL)
+      return NULL;
+   bio.rbuflen = RBUFLEN;
+ 
    for (;;)
    {
+      bio.rpos = 0;
       // accept connections on server socket
       addrlen = sizeof(saddr);
-      if ((fd = accept(((HttpThread_t*)p)->sfd, (struct sockaddr*) &saddr, &addrlen)) == -1)
+      if ((bio.rfd = accept(((HttpThread_t*)p)->sfd, (struct sockaddr*) &saddr, &addrlen)) == -1)
          perror("accept"), exit(EXIT_FAILURE);
 
+
       // read a line from socket
-      if (read_line(fd, buf, sizeof(buf)) == -1)
+      if (bio_read(&bio, buf, sizeof(buf)) == -1)
       {
-         eclose(fd);
+         eclose(bio.rfd);
          log_access(&saddr, "", 0, 0);
          continue;
       } 
+      remove_nl(buf);
 
       // check if string is empty
       if (!strlen(buf))
       {
-         SEND_STATUS(fd, STATUS_400);
+         SEND_STATUS(bio.rfd, STATUS_400);
          log_access(&saddr, dbuf, 400, 0);
-         eclose(fd);
+         bio_close(&bio);
          continue;
       }
 
@@ -157,14 +172,14 @@ void *handle_http(void *p)
       strcpy(dbuf, buf);
       method = strtok_r(buf, " ", &sptr);
       uri = strtok_r(NULL, " ", &sptr);
-      if ((ver = strtok_r(NULL, " ", &sptr)) != NULL)
+      if ((ver = strtok_r(NULL, " \r\n", &sptr)) != NULL)
       {
          // check if protocol version is valid
          if ((strcmp(ver, "HTTP/1.0") != 0) && (strcmp(ver, "HTTP/1.1") != 0))
          {
-            SEND_STATUS(fd, STATUS_400);
+            SEND_STATUS(bio.rfd, STATUS_400);
             log_access(&saddr, dbuf, 400, 0);
-            eclose(fd);
+            bio_close(&bio);
             continue;
          }
       }
@@ -175,9 +190,9 @@ void *handle_http(void *p)
       // check if request line contains URI and that it starts with '/'
       if ((uri == NULL) || (uri[0] != '/'))
       {
-         SEND_STATUS(fd, STATUS_400);
+         SEND_STATUS(bio.rfd, STATUS_400);
          log_access(&saddr, dbuf, 400, 0);
-         eclose(fd);
+          bio_close(&bio);
          continue;
       }
 
@@ -193,9 +208,9 @@ void *handle_http(void *p)
                ((lfd = open(rpath, O_RDONLY)) == -1))
 
          {
-            SEND_STATUS(fd, STATUS_404);
+            SEND_STATUS(bio.rfd, STATUS_404);
             log_access(&saddr, dbuf, 404, 0);
-            eclose(fd);
+            bio_close(&bio);
             continue;
          }
 
@@ -206,9 +221,9 @@ void *handle_http(void *p)
          // check if file is regular file
          if (!S_ISREG(st.st_mode))
          {
-            SEND_STATUS(fd, STATUS_404);
+            SEND_STATUS(bio.rfd, STATUS_404);
             log_access(&saddr, dbuf, 404, 0);
-            eclose(fd);
+            bio_close(&bio);
             eclose(lfd);
             continue;
          }
@@ -216,9 +231,9 @@ void *handle_http(void *p)
          // get memory for file to send
          if ((fbuf = malloc(st.st_size)) == NULL)
          {
-            SEND_STATUS(fd, STATUS_500);
+            SEND_STATUS(bio.rfd, STATUS_500);
             log_access(&saddr, dbuf, 500, 0);
-            eclose(fd);
+            bio_close(&bio);
             eclose(lfd);
             continue;
          }
@@ -230,33 +245,34 @@ void *handle_http(void *p)
          // check if read was successful
          if (len == -1)
          {
-            SEND_STATUS(fd, STATUS_500);
+            SEND_STATUS(bio.rfd, STATUS_500);
             log_access(&saddr, dbuf, 500, 0);
             free(fbuf);
-            eclose(fd);
+            bio_close(&bio);
             continue;
          }
 
          // create response dependent on protocol version
          if (!v09)
          {
-            SEND_STATUS(fd, STATUS_200);
+            SEND_STATUS(bio.rfd, STATUS_200);
             snprintf(buf, sizeof(buf), "Content-Length: %ld\r\n\r\n", len);
-            write(fd, buf, strlen(buf));
+            write(bio.rfd, buf, strlen(buf));
          }
-         write(fd, fbuf, len);
+         write(bio.rfd, fbuf, len);
          free(fbuf);
          log_access(&saddr, dbuf, 200, len);
-         eclose(fd);
+         bio_close(&bio);
          continue;
       }
 
       // all other methods are not implemented
-      SEND_STATUS(fd, STATUS_501);
+      SEND_STATUS(bio.rfd, STATUS_501);
       log_access(&saddr, dbuf, 501, 0);
-      eclose(fd);
+      bio_close(&bio);
    }
 
+   free(bio.rbuf);
    return NULL;
 }
 
